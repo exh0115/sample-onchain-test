@@ -26,6 +26,7 @@ from web3 import Web3
 
 # Configuration
 AGENT_URL = "http://localhost:7999"  # CVM agent endpoint (inside VM)
+AGENT_URL_TLS = "https://localhost:8000"  # CVM agent TLS endpoint (self-signed)
 SEPOLIA_RPC = os.environ.get("SEPOLIA_RPC", "https://1rpc.io/sepolia")
 SEPOLIA_CHAIN_ID = 11155111
 CVM_REGISTRY_CONTRACT = "0xE626f5503B455F775AA9845843B46033a26A635d"  # Sepolia
@@ -55,8 +56,8 @@ def die(msg: str) -> None:
 
 
 def get_golden_measurement() -> str:
-    """Fetch golden measurement from CVM agent."""
-    resp = requests.get(f"{AGENT_URL}/onchain/golden-measurement", timeout=30)
+    """Fetch golden measurement from CVM agent (TLS endpoint, self-signed cert)."""
+    resp = requests.get(f"{AGENT_URL_TLS}/onchain/golden-measurement", timeout=30, verify=False)
     resp.raise_for_status()
     data = resp.json()
     return data.get("golden_measurement", "")
