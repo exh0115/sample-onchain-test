@@ -150,8 +150,8 @@ def get_registration_collaterals(mode: str, sp1_pk: str = None) -> bytes:
     return base64.b64decode(calldata_b64)
 
 
-def send_registration_tx(w3: Web3, private_key: str, contract_address: str, calldata: bytes) -> str:
-    """Send registration transaction to Sepolia."""
+def send_tx(w3: Web3, private_key: str, contract_address: str, calldata: bytes) -> str:
+    """Send transaction to smart contract."""
     acct = w3.eth.account.from_key(private_key)
     from_addr = acct.address
     to_addr = Web3.to_checksum_address(contract_address)
@@ -207,7 +207,7 @@ def send_registration_tx(w3: Web3, private_key: str, contract_address: str, call
     return tx_hash.hex()
 
 
-def step_golden_measurement_and_identity() -> None:
+def step_golden_measurement_and_identity(w3: Web3, pk: str, auth_contract: str = None) -> None:
     """Step 1: Get and display golden measurement and VM identity."""
     print()
     print("=" * 70)
@@ -222,8 +222,7 @@ def step_golden_measurement_and_identity() -> None:
 
     print()
     print("*" * 70)
-    print("Please register this Golden Measurement with your")
-    print("Application Auth Contract:")
+    print("Golden Measurement:")
     print()
     print(f"  {gm}")
     print()
@@ -232,6 +231,34 @@ def step_golden_measurement_and_identity() -> None:
     print(f"  {identity_hash}")
     print("*" * 70)
     print()
+
+    # Register golden measurement with auth contract if provided
+    # Note that this is just an example to show how golden measurements can be registered
+    # It does not need to be registered from within the CVM.
+    if auth_contract:
+        log(f"Registering golden measurement with auth contract: {auth_contract}")
+
+        # Convert golden measurement hex string to bytes32
+        gm_bytes = bytes.fromhex(gm.replace("0x", ""))
+
+        # ABI encode addGoldenMeasurement(bytes32)
+        func_selector = Web3.keccak(text="addGoldenMeasurement(bytes32)")[:4]
+        from eth_abi import encode
+        encoded_params = encode(["bytes32"], [gm_bytes])
+        calldata = func_selector + encoded_params
+
+        try:
+            tx_hash = send_tx(w3, pk, auth_contract, calldata)
+            print()
+            print(f"Golden measurement registered! TX: 0x{tx_hash}")
+            print(f"Explorer: https://sepolia.etherscan.io/tx/0x{tx_hash}")
+            print()
+        except Exception as e:
+            # May fail if already registered, which is fine
+            log(f"Note: addGoldenMeasurement failed (may already be registered): {e}")
+    else:
+        print("Please register this Golden Measurement with your")
+        print("Application Auth Contract!")
 
 
 def step_register_solidity(w3: Web3, contract: str, pk: str) -> None:
@@ -246,7 +273,7 @@ def step_register_solidity(w3: Web3, contract: str, pk: str) -> None:
     log(f"Got calldata: {len(calldata)} bytes")
 
     log("Sending registration transaction...")
-    tx_hash = send_registration_tx(w3, pk, contract, calldata)
+    tx_hash = send_tx(w3, pk, contract, calldata)
 
     print()
     print(f"Transaction hash: 0x{tx_hash}")
@@ -267,7 +294,7 @@ def step_register_sp1(w3: Web3, contract: str, pk: str, sp1_pk: str) -> None:
     log(f"Got calldata: {len(calldata)} bytes")
 
     log("Sending registration transaction...")
-    tx_hash = send_registration_tx(w3, pk, contract, calldata)
+    tx_hash = send_tx(w3, pk, contract, calldata)
 
     print()
     print(f"Transaction hash: 0x{tx_hash}")
@@ -369,7 +396,7 @@ def main() -> None:
         log(f"Connected! Chain ID: {w3.eth.chain_id}")
 
         # Step 1: Golden measurement & VM identity
-        step_golden_measurement_and_identity()
+        step_golden_measurement_and_identity(w3, pk, auth_contract)
 
         log(f"Waiting {STEP_DELAY}s before next step...")
         time.sleep(STEP_DELAY)
