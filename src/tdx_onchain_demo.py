@@ -6,12 +6,14 @@ A sequential demo that:
 1. Gets and displays the golden measurement & CVM identity hash
 2. Registers with Solidity verification
 3. Registers with SP1 ZK verification
-4. Sleeps forever (keeps container alive)
+4. Signs a message and verifies CVM signature on-chain (if AUTH_CONTRACT_ADDR is set)
+5. Sleeps forever (keeps container alive)
 
 Environment variables:
   PRIVATE_KEY            - Private key for signing transactions (required)
   SP1_PRIVATE_KEY        - SP1 prover private key with funds (optional, skips SP1 demo if not set)
   SEPOLIA_RPC            - Sepolia RPC URL (optional, default: https://1rpc.io/sepolia)
+  AUTH_CONTRACT_ADDR     - Application auth contract address (optional, skips CVM verification and signature check demo if not set)
 """
 
 import base64
@@ -71,6 +73,38 @@ def get_cvm_identity_hash() -> str:
     hash_b64 = data.get("cvm_identity_hash", "")
     hash_bytes = base64.b64decode(hash_b64)
     return "0x" + hash_bytes.hex()
+
+
+def sign_message(message: str) -> tuple[bytes, bytes]:
+    """
+    Request the CVM agent to sign a message.
+
+    Args:
+        message: The message string to sign
+
+    Returns:
+        Tuple of (cvm_identity_hash, signature) as raw bytes
+    """
+    payload = {"message": message}
+
+    resp = requests.post(
+        f"{AGENT_URL}/sign-message",
+        json=payload,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    cvm_identity_hash_b64 = data.get("cvm_identity_hash", "")
+    signature_b64 = data.get("signature", "")
+
+    if not cvm_identity_hash_b64 or not signature_b64:
+        raise ValueError("Missing cvm_identity_hash or signature in response")
+
+    cvm_identity_hash = base64.b64decode(cvm_identity_hash_b64)
+    signature = base64.b64decode(signature_b64)
+
+    return cvm_identity_hash, signature
 
 
 def get_registration_collaterals(mode: str, sp1_pk: str = None) -> bytes:
@@ -241,6 +275,64 @@ def step_register_sp1(w3: Web3, contract: str, pk: str, sp1_pk: str) -> None:
     print()
 
 
+def step_cvm_signature(w3: Web3, auth_contract: str = None) -> None:
+    """Step 4: CVM Signature - sign message and optionally verify on-chain."""
+    print()
+    print("=" * 70)
+    print("STEP 4: CVM Signature")
+    print("=" * 70)
+
+    message = "EXAMPLE_MESSAGE"
+    message_bytes = message.encode("utf-8")
+
+    log(f"Message to sign: {message}")
+    log("Requesting signature from CVM agent...")
+
+    cvm_identity_hash, signature = sign_message(message)
+
+    # Build ABI-encoded calldata for checkCVMSignature
+    func_selector = Web3.keccak(text="checkCVMSignature(bytes32,bytes,bytes)")[:4]
+    from eth_abi import encode
+    encoded_params = encode(
+        ["bytes32", "bytes", "bytes"],
+        [cvm_identity_hash, message_bytes, signature]
+    )
+    calldata = func_selector + encoded_params
+
+    # Display signing results
+    print()
+    print("*" * 70)
+    print("CVM Signature Results:")
+    print()
+    print(f"  Message: {message}")
+    print(f"  CVM Identity Hash: 0x{cvm_identity_hash.hex()}")
+    print(f"  Signature: 0x{signature.hex()}")
+    print()
+    print("ABI-encoded calldata for checkCVMSignature:")
+    print(f"  0x{calldata.hex()}")
+    print("*" * 70)
+    print()
+
+    # Only verify on-chain if auth contract is provided
+    if auth_contract:
+        log(f"Verifying signature on auth contract: {auth_contract}")
+
+        auth_contract_addr = Web3.to_checksum_address(auth_contract)
+
+        result = w3.eth.call({
+            "to": auth_contract_addr,
+            "data": calldata,
+        })
+
+        verified = bool(int.from_bytes(result, "big"))
+
+        print()
+        print(f"On-chain verification result: {'PASSED' if verified else 'FAILED'}")
+        print()
+    else:
+        log("No AUTH_CONTRACT_ADDR provided, skipping on-chain verification")
+
+
 def main() -> None:
     print()
     print("#" * 70)
@@ -252,6 +344,7 @@ def main() -> None:
         # Load config from environment
         pk = os.environ.get("PRIVATE_KEY")
         sp1_pk = os.environ.get("SP1_PRIVATE_KEY")
+        auth_contract = os.environ.get("AUTH_CONTRACT_ADDR")
 
         if not pk:
             die("PRIVATE_KEY environment variable is required")
@@ -262,6 +355,10 @@ def main() -> None:
             log("SP1 prover key: provided (will run SP1 demo)")
         else:
             log("SP1 prover key: not provided (skipping SP1 demo)")
+        if auth_contract:
+            log(f"Auth contract: {auth_contract} (will verify signature on-chain)")
+        else:
+            log("Auth contract: not provided (will skip on-chain verification)")
         print()
 
         # Connect to Sepolia
@@ -289,6 +386,12 @@ def main() -> None:
         else:
             print()
             log("Skipping SP1 registration (no SP1_PRIVATE_KEY provided)")
+
+        # Step 4: CVM Signature (always signs, only verifies on-chain if auth contract provided)
+        log(f"Waiting {STEP_DELAY}s before next step...")
+        time.sleep(STEP_DELAY)
+
+        step_cvm_signature(w3, auth_contract)
 
         # Done - sleep forever
         print()
