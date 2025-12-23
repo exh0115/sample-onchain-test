@@ -107,22 +107,24 @@ def sign_message(message: str) -> tuple[bytes, bytes]:
     return cvm_identity_hash, signature
 
 
-def get_registration_collaterals(mode: str, sp1_pk: str = None) -> bytes:
+def get_registration_collaterals(mode: str, chain_id: int, sp1_pk: str = None) -> bytes:
     """
     Fetch registration collaterals from CVM agent.
 
     Args:
         mode: "solidity" (report_type=1) or "sp1" (report_type=2)
+        chain_id: Chain ID of the target network
         sp1_pk: SP1 prover private key (required for sp1 mode)
 
     Returns:
         Raw calldata bytes
     """
     if mode == "solidity":
-        params = {"report_type": 1}
+        params = {"report_type": 1, "chain_id": str(chain_id)}
     elif mode == "sp1":
         params = {
             "report_type": 2,
+            "chain_id": str(chain_id),
             "zk_config": {
                 "image_id": TDX_SP1_IMAGE_ID,
                 "url": "",
@@ -269,7 +271,7 @@ def step_register_solidity(w3: Web3, contract: str, pk: str) -> None:
     print("=" * 70)
 
     log("Fetching registration collaterals (Solidity mode)...")
-    calldata = get_registration_collaterals("solidity")
+    calldata = get_registration_collaterals("solidity", w3.eth.chain_id)
     log(f"Got calldata: {len(calldata)} bytes")
 
     log("Sending registration transaction...")
@@ -290,7 +292,7 @@ def step_register_sp1(w3: Web3, contract: str, pk: str, sp1_pk: str) -> None:
 
     log("Fetching registration collaterals (SP1 mode)...")
     log("This may take a few minutes for ZK proof generation...")
-    calldata = get_registration_collaterals("sp1", sp1_pk)
+    calldata = get_registration_collaterals("sp1", w3.eth.chain_id, sp1_pk)
     log(f"Got calldata: {len(calldata)} bytes")
 
     log("Sending registration transaction...")
